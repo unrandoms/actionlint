@@ -235,6 +235,21 @@
               "helpUri": "https://github.com/rhysd/actionlint/blob/main/docs/checks.md"
             },
             {
+              "id": "unmasked-secret",
+              "name": "UnmaskedSecret",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "description": "Checks for run steps that echo secrets or credential environment variables without masking them with ::add-mask::, which would expose the values in the workflow log",
+                "queryURI": "https://github.com/rhysd/actionlint/blob/main/docs/checks.md"
+              },
+              "fullDescription": {
+                "text": "Checks for run steps that echo secrets or credential environment variables without masking them with ::add-mask::, which would expose the values in the workflow log"
+              },
+              "helpUri": "https://github.com/rhysd/actionlint/blob/main/docs/checks.md"
+            },
+            {
               "id": "workflow-call",
               "name": "WorkflowCall",
               "defaultConfiguration": {

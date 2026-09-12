@@ -570,6 +570,7 @@ func (l *Linter) check(
 			NewRuleExpression(localActions, localReusableWorkflows),
 			NewRuleDeprecatedCommands(),
 			NewRuleIfCond(),
+			NewRuleUnmaskedSecret(),
 		}
 		if l.shellcheck != "" {
 			r, err := NewRuleShellcheck(l.shellcheck, proc)

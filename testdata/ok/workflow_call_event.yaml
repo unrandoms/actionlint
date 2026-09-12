@@ -33,5 +33,5 @@ jobs:
           echo ${{ inputs.input1 }}
           echo ${{ inputs.input2 }}
           echo ${{ inputs.input3 }}
-          echo ${{ secrets.secret0 }}
-          echo ${{ secrets.secret1 }}
+          curl -u "user:${{ secrets.secret0 }}" https://example.com
+          curl -u "user:${{ secrets.secret1 }}" https://example.com
