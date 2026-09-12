@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
+
+	"github.com/rhysd/actionlint/gitlabci"
 )
 
 // These variables might be modified by ldflags on building release binaries by GoReleaser. Do not modify manually
@@ -110,6 +112,33 @@ func (cmd *Command) runLinter(args []string, opts *LinterOptions, initConfig boo
 	return l.LintFiles(args, nil)
 }
 
+// runGitLabLinter lints the given .gitlab-ci.yml file and writes results to cmd.Stdout.
+// It converts gitlabci.Diagnostic values to *Error for uniform handling and returns them.
+func (cmd *Command) runGitLabLinter(path string) ([]*Error, error) {
+	diags, err := gitlabci.Lint(path)
+	if err != nil {
+		return nil, err
+	}
+
+	errs := make([]*Error, 0, len(diags))
+	for _, d := range diags {
+		e := &Error{
+			Message:  d.Message,
+			Filepath: d.Filepath,
+			Line:     d.Line,
+			Column:   d.Column,
+			Kind:     d.Kind,
+		}
+		errs = append(errs, e)
+	}
+
+	for _, e := range errs {
+		e.PrettyPrint(cmd.Stdout, nil)
+	}
+
+	return errs, nil
+}
+
 type ignorePatternFlags []string
 
 func (i *ignorePatternFlags) String() string {
@@ -130,6 +159,8 @@ func (cmd *Command) Main(args []string) int {
 	var initConfig bool
 	var noColor bool
 	var color bool
+	var gitlabFile string
+	var formatSARIF bool
 
 	flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	flags.SetOutput(cmd.Stderr)
@@ -137,7 +168,7 @@ func (cmd *Command) Main(args []string) int {
 	flags.StringVar(&opts.Shellcheck, "shellcheck", "shellcheck", "Command name or file path of \"shellcheck\" external command. If empty, shellcheck integration will be disabled")
 	flags.StringVar(&opts.Pyflakes, "pyflakes", "pyflakes", "Command name or file path of \"pyflakes\" external command. If empty, pyflakes integration will be disabled")
 	flags.BoolVar(&opts.Oneline, "oneline", false, "Use one line per one error. Useful for reading error messages from programs")
-	flags.StringVar(&opts.Format, "format", "", "Custom template to format error messages in Go template syntax. See the usage documentation for more details")
+	flags.StringVar(&opts.Format, "format", "", "Custom template to format error messages in Go template syntax. Use \"sarif\" to output SARIF 2.1.0 JSON. See the usage documentation for more details")
 	flags.StringVar(&opts.ConfigFile, "config-file", "", "File path to config file")
 	flags.BoolVar(&initConfig, "init-config", false, "Generate default config file at .github/actionlint.yaml in current project")
 	flags.BoolVar(&noColor, "no-color", false, "Disable colorful output")
@@ -146,6 +177,7 @@ func (cmd *Command) Main(args []string) int {
 	flags.BoolVar(&opts.Debug, "debug", false, "Enable debug output (for development)")
 	flags.BoolVar(&ver, "version", false, "Show version and how this binary was installed")
 	flags.StringVar(&opts.StdinFileName, "stdin-filename", "<stdin>", "File name when reading input from stdin")
+	flags.StringVar(&gitlabFile, "gitlab", "", "Path to a .gitlab-ci.yml file to lint for CI/CD security issues in addition to GitHub Actions files")
 	flags.Usage = func() {
 		printUsageHeader(cmd.Stderr)
 		flags.PrintDefaults()
@@ -171,6 +203,12 @@ func (cmd *Command) Main(args []string) int {
 		return ExitStatusSuccessNoProblem
 	}
 
+	// Intercept the special "sarif" format value before passing to the template formatter.
+	if opts.Format == "sarif" {
+		formatSARIF = true
+		opts.Format = ""
+	}
+
 	opts.IgnorePatterns = ignorePats
 	opts.LogWriter = cmd.Stderr
 
@@ -186,6 +224,25 @@ func (cmd *Command) Main(args []string) int {
 		fmt.Fprintln(cmd.Stderr, err.Error())
 		return ExitStatusFailure
 	}
+
+	// Run the GitLab CI linter when --gitlab is given.
+	if gitlabFile != "" {
+		glErrs, glErr := cmd.runGitLabLinter(gitlabFile)
+		if glErr != nil {
+			fmt.Fprintln(cmd.Stderr, glErr.Error())
+			return ExitStatusFailure
+		}
+		errs = append(errs, glErrs...)
+	}
+
+	// Emit SARIF output when --format sarif was requested.
+	if formatSARIF {
+		if err := WriteSARIF(cmd.Stdout, errs, getCommandVersion()); err != nil {
+			fmt.Fprintln(cmd.Stderr, err.Error())
+			return ExitStatusFailure
+		}
+	}
+
 	if len(errs) > 0 {
 		return ExitStatusSuccessProblemFound // Linter found some issues, yay!
 	}
